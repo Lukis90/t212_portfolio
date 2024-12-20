@@ -1,9 +1,13 @@
+import os
 import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 NAME_SPACES = {"obs": "http://www.ecb.europa.eu/vocabulary/stats/exr/1"}
 PATH = Path("data")
@@ -12,9 +16,11 @@ URLS = {
     "USD": "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/usd.xml",
     "CAD": "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/cad.xml",
 }
-WHICH_YEAR = 2023
+WHICH_YEAR = int(os.environ["WHICH_YEAR"])
 START_DATE = date(WHICH_YEAR, 1, 1)
-END_DATE = date.today()
+END_DATE = date(WHICH_YEAR + 1, 1, 1)
+print("start period:", START_DATE)
+print("end period:", END_DATE)
 
 
 def _download_exchange_rates(currency: str):
@@ -57,38 +63,52 @@ def _read_multiple_csvs() -> pd.DataFrame:
     transactions["Time"] = pd.to_datetime(transactions["Time"])
     transactions["date"] = transactions["Time"].dt.date
     transactions["date"] = transactions["date"].astype(str)
-    transactions = transactions.loc[transactions["Time"] <= str(END_DATE)]
+    transactions = transactions.loc[transactions["Time"] < str(END_DATE)]
     return transactions
 
 
 def _get_sell_tickers(transactions: pd.DataFrame) -> list[str]:
     sell_tickers = transactions.loc[
-        ((transactions.Time >= str(START_DATE)) & (transactions.Time <= str(END_DATE)))
+        ((transactions.Time >= str(START_DATE)) & (transactions.Time < str(END_DATE)))
         & transactions.Action.isin(["Limit sell", "Market sell"]),
         "Ticker",
     ].unique()
     return list(sell_tickers)
 
 
-def _add_exchange_rate(row: pd.Series) -> float:
-    if row["Currency (Result)"] == "EUR":
+def _add_exchange_rate(row: pd.Series, curr_coll: str) -> float:
+    if row[curr_coll] == "EUR":
         return 1.0
 
     try:
-        res = exchange_rates[row["Currency (Result)"]][row["date"]]
+        res = exchange_rates[row[curr_coll]][row["date"]]
     except KeyError as e:
-        _download_exchange_rates(row["Currency (Result)"])
+        _download_exchange_rates(row[curr_coll])
         raise KeyError("Try again") from e
     return res
 
 
 def _calculate_pnl(transactions: pd.DataFrame) -> float:
     needed = transactions.loc[
-        ((transactions.Time >= str(START_DATE)) & (transactions.Time <= str(END_DATE)))
+        ((transactions.Time >= str(START_DATE)) & (transactions.Time < str(END_DATE)))
         & transactions.Action.isin(["Limit sell", "Market sell"])
     ].copy()
-    needed["rates"] = needed.apply(_add_exchange_rate, axis=1)
+    needed["rates"] = needed.apply(
+        lambda row: _add_exchange_rate(row=row, curr_coll="Currency (Result)"), axis=1
+    )
     needed["eur_amount"] = needed["Result"] / needed["rates"]
+    return needed["eur_amount"].sum()
+
+
+def _calculate_sell_amount(transactions: pd.DataFrame) -> float:
+    needed = transactions.loc[
+        ((transactions.Time >= str(START_DATE)) & (transactions.Time < str(END_DATE)))
+        & transactions.Action.isin(["Limit sell", "Market sell"])
+    ].copy()
+    needed["rates"] = needed.apply(
+        lambda row: _add_exchange_rate(row=row, curr_coll="Currency (Total)"), axis=1
+    )
+    needed["eur_amount"] = needed["Total"] / needed["rates"]
     needed.to_excel("check.xlsx", index=False)
     return needed["eur_amount"].sum()
 
@@ -98,4 +118,6 @@ if __name__ == "__main__":
     exchange_rates = _get_exchange_rates()
     sell_tickers = _get_sell_tickers(transactions=transactions)
     pnl = _calculate_pnl(transactions=transactions)
+    total_sell = _calculate_sell_amount(transactions=transactions)
     print("pnl:", pnl)
+    print("total sell:", total_sell)
