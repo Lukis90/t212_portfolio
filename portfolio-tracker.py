@@ -101,6 +101,7 @@ def _calculate_pnl(transactions: pd.DataFrame) -> float:
         lambda row: _add_exchange_rate(row=row, curr_coll="Currency (Result)"), axis=1
     )
     needed["eur_amount"] = needed["Result"] / needed["rates"]
+    needed.to_excel("check.xlsx", index=False)
     return needed["eur_amount"].sum()
 
 
@@ -113,7 +114,6 @@ def _calculate_sell_amount(transactions: pd.DataFrame) -> float:
         lambda row: _add_exchange_rate(row=row, curr_coll="Currency (Total)"), axis=1
     )
     needed["eur_amount"] = needed["Total"] / needed["rates"]
-    needed.to_excel("check.xlsx", index=False)
     return needed["eur_amount"].sum()
 
 
