@@ -23,25 +23,29 @@ print("start period:", START_DATE)
 print("end period:", END_DATE)
 
 
-def _download_exchange_rates(currency: str):
+def _download_exchange_rates(currency: str) -> Path:
     res = requests.get(URLS.get(currency))
-    with open(PATH / f"{currency.upper()}_{str(date.today())}.xml", "w") as f:
+    path = PATH / f"{currency.upper()}_{str(date.today())}.xml"
+    with open(path, "w") as f:
         f.write(res.text)
+    return path
 
 
-def _refresh_exchange_rates(currency: str, updated_at: str):
+def _refresh_exchange_rates(currency: str, updated_at: str, path: Path) -> Path:
     if updated_at == str(date.today()):
-        return
+        return path
 
     [path.unlink() for path in PATH.glob(f"{currency}*.xml")]
-    _download_exchange_rates(currency=currency)
+    return _download_exchange_rates(currency=currency)
 
 
 def _get_exchange_rates() -> dict[str, dict[str, float]]:
     rates = {}
     for path in PATH.glob("*.xml"):
         currency, updated_at = path.name.split(".xml")[0].split("_")
-        _refresh_exchange_rates(currency=currency, updated_at=updated_at)
+        path = _refresh_exchange_rates(
+            currency=currency, updated_at=updated_at, path=path
+        )
         tree = ET.parse(path)
         root = tree.getroot()
         exchange_rates = root.findall(".//obs:Obs", namespaces=NAME_SPACES)
