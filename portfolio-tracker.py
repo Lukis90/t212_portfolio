@@ -1,6 +1,6 @@
 import os
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -85,10 +85,16 @@ def _add_exchange_rate(row: pd.Series, curr_coll: str) -> float:
         return 1.0
 
     try:
-        res = exchange_rates[row[curr_coll]][row["date"]]
+        cur_rates = exchange_rates[row[curr_coll]]
     except KeyError as e:
         _download_exchange_rates(row[curr_coll])
         raise KeyError("Try again") from e
+    try:
+        res = cur_rates[row["date"]]
+    except KeyError:
+        cur_date = datetime.strptime(row["date"], "%Y-%m-%d").date()
+        previous_day = cur_date - timedelta(days=1)
+        res = cur_rates[str(previous_day)]
     return res
 
 
